@@ -4,11 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.Typeface
+import android.graphics.*
 import android.os.Bundle
 import android.os.Handler
 import android.os.Message
@@ -24,6 +20,9 @@ import java.lang.ref.WeakReference
 import java.util.Calendar
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import android.graphics.RectF
+
+
 
 class MyWatchFace : CanvasWatchFaceService() {
 
@@ -58,8 +57,6 @@ class MyWatchFace : CanvasWatchFaceService() {
 
         private val calendar: Calendar by lazy { Calendar.getInstance() }
 
-        private var registeredTimeZoneReceiver = false
-
         private lateinit var backgroundPaint: Paint
         private lateinit var clockTextPaint: Paint
 
@@ -68,6 +65,7 @@ class MyWatchFace : CanvasWatchFaceService() {
 
         private val updateTimeHandler: Handler = EngineHandler(this)
 
+        private var registeredTimeZoneReceiver = false
         private val timeZoneReceiver: BroadcastReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 calendar.timeZone = TimeZone.getDefault()
@@ -154,14 +152,71 @@ class MyWatchFace : CanvasWatchFaceService() {
             }
 
             // Draw centered digital clock
+            val centerX = canvas.width / 2f
+            val centerY = canvas.height / 2f
+
             val now = System.currentTimeMillis()
             calendar.timeInMillis = now
 
-            val text = String.format("%d", calendar.get(Calendar.HOUR))
-            val xPos = canvas.width / 2f
-            val yPos = ((canvas.height / 2f) - ((clockTextPaint.descent() + clockTextPaint.ascent()) / 2f))
+            val text = String.format("%02d", calendar.get(Calendar.HOUR))
+            val clockPosY = centerY - ((clockTextPaint.descent() + clockTextPaint.ascent()) / 2f)
+            canvas.drawText(text, centerX, clockPosY, clockTextPaint)
 
-            canvas.drawText(text, xPos, yPos, clockTextPaint)
+            // Top dial
+            val topDialCenterX = centerX
+            val topDialCenterY = 15f
+            val topDialRad = canvas.width / 3f
+            val topDialPath = constructCircularDialMarks(
+                    topDialCenterX, topDialCenterY, topDialRad, tickInterval = 2
+            )
+            canvas.drawPath(topDialPath, clockTextPaint)
+
+            // Bottom dial
+            val bottomDialCenterX = centerX
+            val bottomDialCenterY = canvas.height.toFloat() - 30
+            val bottomDialRad = canvas.width / 2f
+            val bottomDialPath = constructCircularDialMarks(
+                    bottomDialCenterX, bottomDialCenterY, bottomDialRad
+            )
+
+            canvas.drawPath(bottomDialPath, clockTextPaint)
+        }
+
+        private fun constructCircularDialMarks(
+                centerX: Float,
+                centerY: Float,
+                radius: Float,
+                tickInterval: Int = 5,
+                numOfHours: Int = 12
+        ): Path {
+
+            // Mark specs
+            val markWidth = 3
+            val markHeight = 15
+            val smallMarkHeight = markHeight/1.6f
+
+            val markLeft = centerX - markWidth/2f
+            val markRight = markLeft + markWidth
+            val markTop = centerY - radius
+            val markBot = markTop + markHeight
+
+            val dialPath = Path()
+
+            val numOfMarks = numOfHours * tickInterval
+            for (hourMark: Int in 0 until numOfMarks) {
+                val isLargeMark = hourMark % tickInterval == 0
+                val markTopUpdated = if (isLargeMark) markTop else markTop + (markHeight - smallMarkHeight)
+
+                val markRect = RectF(markLeft, markTopUpdated, markRight, markBot)
+                dialPath.addRect(markRect, Path.Direction.CW)
+
+                // Rotate Path
+                val mMatrix = Matrix()
+                mMatrix.postRotate(360f/numOfMarks, centerX, centerY)
+                dialPath.transform(mMatrix)
+            }
+
+            return dialPath
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
