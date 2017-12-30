@@ -31,8 +31,6 @@ class MyWatchFace : CanvasWatchFaceService() {
          * Handler message id for updating the time periodically in interactive mode.
          */
         private const val MSG_UPDATE_TIME = 0
-
-        private val NORMAL_TYPEFACE = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
         private val INTERACTIVE_UPDATE_RATE_MS = TimeUnit.SECONDS.toMillis(1)
     }
 
@@ -58,7 +56,8 @@ class MyWatchFace : CanvasWatchFaceService() {
         private val calendar: Calendar by lazy { Calendar.getInstance() }
 
         private lateinit var backgroundPaint: Paint
-        private lateinit var clockTextPaint: Paint
+        private lateinit var hourTextPaint: Paint
+        private lateinit var minuteTextPaint: Paint
 
         private var isLowBitAmbient: Boolean = false
         private var isAmbient: Boolean = false
@@ -85,12 +84,21 @@ class MyWatchFace : CanvasWatchFaceService() {
                 color = ContextCompat.getColor(applicationContext, R.color.background)
             }
 
-            // Initializes Watch Face.
-            clockTextPaint = Paint().apply {
-                typeface = NORMAL_TYPEFACE
+            // Initializes typefaces.
+            hourTextPaint = Paint().apply {
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
                 isAntiAlias = true
                 color = ContextCompat.getColor(applicationContext, R.color.digital_text)
                 textAlign = Paint.Align.CENTER
+                textSize = baseContext.resources.getDimension( R.dimen.digital_text_size)
+            }
+
+            minuteTextPaint = Paint().apply {
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+                isAntiAlias = true
+                color = ContextCompat.getColor(applicationContext, R.color.digital_text)
+                textAlign = Paint.Align.CENTER
+                textSize = baseContext.resources.getDimension( R.dimen.digital_text_size)
             }
         }
 
@@ -113,8 +121,8 @@ class MyWatchFace : CanvasWatchFaceService() {
         override fun onAmbientModeChanged(inAmbientMode: Boolean) {
             super.onAmbientModeChanged(inAmbientMode)
             isAmbient = inAmbientMode
-            clockTextPaint.isAntiAlias = isLowBitAmbient && !inAmbientMode
-
+            //hourTextPaint.isAntiAlias = isLowBitAmbient && !inAmbientMode
+            //minuteTextPaint.isAntiAlias = isLowBitAmbient && !inAmbientMode
 
             // Whether the timer should be running depends on whether we're visible (as well as
             // whether we're in ambient mode), so we may need to start or stop the timer.
@@ -151,72 +159,62 @@ class MyWatchFace : CanvasWatchFaceService() {
                         bounds.width().toFloat(), bounds.height().toFloat(), backgroundPaint)
             }
 
-            // Draw centered digital clock
-            val centerX = canvas.width / 2f
-            val centerY = canvas.height / 2f
-
             val now = System.currentTimeMillis()
             calendar.timeInMillis = now
 
-            val text = String.format("%02d", calendar.get(Calendar.HOUR))
-            val clockPosY = centerY - ((clockTextPaint.descent() + clockTextPaint.ascent()) / 2f)
-            canvas.drawText(text, centerX, clockPosY, clockTextPaint)
+            val centerX = canvas.width / 2f
+            val centerY = canvas.height / 2f
 
-            // Top dial
-            val topDialCenterX = centerX
-            val topDialCenterY = 15f
-            val topDialRad = canvas.width / 3f
-            val topDialPath = constructCircularDialMarks(
-                    topDialCenterX, topDialCenterY, topDialRad, tickInterval = 2
+            // Draw top dial
+            val topDialPath = DialMarks(
+                    centerX = centerX,
+                    centerY = 0f,
+                    radius  = canvas.width / 3f,
+                    tickInterval = 2
             )
-            canvas.drawPath(topDialPath, clockTextPaint)
-
-            // Bottom dial
-            val bottomDialCenterX = centerX
-            val bottomDialCenterY = canvas.height.toFloat() - 30
-            val bottomDialRad = canvas.width / 2f
-            val bottomDialPath = constructCircularDialMarks(
-                    bottomDialCenterX, bottomDialCenterY, bottomDialRad
+            val hourRotation = 360f - 360f/(12f/calendar.get(Calendar.HOUR))
+            canvas.save()
+            canvas.rotate(180f + hourRotation, topDialPath.centerX, topDialPath.centerY)
+            canvas.drawPath(topDialPath, hourTextPaint)
+            topDialPath.drawNumbers(
+                    paint = hourTextPaint,
+                    canvas = canvas,
+                    stepSkip = 2,
+                    drawUpsideDown = true,
+                    formatNumber = {
+                        if (it == 0)
+                            ""
+                        else
+                            String.format("%02d", it)
+                    }
             )
+            canvas.restore()
 
-            canvas.drawPath(bottomDialPath, clockTextPaint)
-        }
-
-        private fun constructCircularDialMarks(
-                centerX: Float,
-                centerY: Float,
-                radius: Float,
-                tickInterval: Int = 5,
-                numOfHours: Int = 12
-        ): Path {
-
-            // Mark specs
-            val markWidth = 3
-            val markHeight = 15
-            val smallMarkHeight = markHeight/1.6f
-
-            val markLeft = centerX - markWidth/2f
-            val markRight = markLeft + markWidth
-            val markTop = centerY - radius
-            val markBot = markTop + markHeight
-
-            val dialPath = Path()
-
-            val numOfMarks = numOfHours * tickInterval
-            for (hourMark: Int in 0 until numOfMarks) {
-                val isLargeMark = hourMark % tickInterval == 0
-                val markTopUpdated = if (isLargeMark) markTop else markTop + (markHeight - smallMarkHeight)
-
-                val markRect = RectF(markLeft, markTopUpdated, markRight, markBot)
-                dialPath.addRect(markRect, Path.Direction.CW)
-
-                // Rotate Path
-                val mMatrix = Matrix()
-                mMatrix.postRotate(360f/numOfMarks, centerX, centerY)
-                dialPath.transform(mMatrix)
-            }
-
-            return dialPath
+            // Draw bottom dial
+            val bottomDialPath = DialMarks(
+                    centerX = centerX,
+                    centerY = canvas.height.toFloat(),
+                    radius  = canvas.width / 2f
+            )
+            val currentMin = calendar.get(Calendar.MINUTE) + calendar.get(Calendar.SECOND) / 100f
+            val minuteRotation = 360f - 360f/(60f/currentMin)
+            canvas.save()
+            canvas.rotate(minuteRotation, bottomDialPath.centerX, bottomDialPath.centerY)
+            canvas.drawPath(bottomDialPath, hourTextPaint)
+            bottomDialPath.drawNumbers(
+                    paint = minuteTextPaint,
+                    canvas = canvas,
+                    stepDif = 5,
+                    stepSkip = 5,
+                    drawUpsideDown = false,
+                    formatNumber = {
+                        if (it == 0)
+                            ""
+                        else
+                            String.format("%02d", it)
+                    }
+            )
+            canvas.restore()
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -260,15 +258,6 @@ class MyWatchFace : CanvasWatchFaceService() {
             // Load resources that have alternate values for round watches.
             val resources = this@MyWatchFace.resources
             val isRound = insets.isRound
-
-            val textSize = resources.getDimension(
-                    if (isRound)
-                        R.dimen.digital_text_size_round
-                    else
-                        R.dimen.digital_text_size
-            )
-
-            clockTextPaint.textSize = textSize
         }
 
         /**
