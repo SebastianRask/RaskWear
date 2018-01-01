@@ -54,24 +54,29 @@ class DialMarks(
     fun drawNumbers(
             start: Int = 0,
             stepDif: Int = 1,
-            stepSkip: Int = 1,
+            stepSkip: Int = tickInterval,
             drawUpsideDown: Boolean,
             paint: Paint,
             canvas: Canvas,
+            markDistance: Int = 5,
             drawBelowMarks: Boolean = false,
             formatNumber: (numberStep: Int) -> String
     ) {
         canvas.save()
         val end: Int = start + numOfMarks / stepSkip
+
         for (numberStep: Int in start..end) {
             val text = formatNumber(numberStep * stepDif)
             val textBounds = Rect()
             paint.getTextBounds(text, 0, text.length, textBounds)
 
             val textHeight = textBounds.height() - paint.descent()
-            val yDiff = (if (drawBelowMarks) textHeight else -textHeight)
-            val posY = centerY - radius + yDiff - (if (drawUpsideDown) paint.descent() else -paint.descent())
+            val yDiff = if (drawBelowMarks)
+                textHeight + markHeight + markDistance
+            else
+                -textHeight - markDistance
 
+            val posY = centerY - radius + yDiff - (if (drawUpsideDown) paint.descent() else -paint.descent())
             canvas.save()
             canvas.rotate(if (drawUpsideDown) 180f else 0f, centerX, posY)
             canvas.drawText(text, centerX, posY, paint)

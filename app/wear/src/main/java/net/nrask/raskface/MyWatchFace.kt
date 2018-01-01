@@ -1,5 +1,6 @@
 package net.nrask.raskface
 
+import android.animation.TimeInterpolator
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,16 +13,16 @@ import android.support.v4.content.ContextCompat
 import android.support.wearable.watchface.CanvasWatchFaceService
 import android.support.wearable.watchface.WatchFaceService
 import android.support.wearable.watchface.WatchFaceStyle
+import android.util.Log
 import android.view.SurfaceHolder
 import android.view.WindowInsets
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Toast
 
 import java.lang.ref.WeakReference
 import java.util.Calendar
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
-import android.graphics.RectF
-
 
 
 class MyWatchFace : CanvasWatchFaceService() {
@@ -31,7 +32,9 @@ class MyWatchFace : CanvasWatchFaceService() {
          * Handler message id for updating the time periodically in interactive mode.
          */
         private const val MSG_UPDATE_TIME = 0
-        private val INTERACTIVE_UPDATE_RATE_MS = TimeUnit.SECONDS.toMillis(1)
+        private val INTERACTIVE_UPDATE_RATE_MS = TimeUnit.MILLISECONDS.toMillis(1)
+
+        private const val AMBIENT_CHANGE_ANIMATION_DUR_MS = 1000
     }
 
     override fun onCreateEngine(): Engine {
@@ -71,6 +74,9 @@ class MyWatchFace : CanvasWatchFaceService() {
                 invalidate()
             }
         }
+
+        private var ambientChangeTimeStamp: Long = 0
+        private val ambientChangeInterpolator: TimeInterpolator = AccelerateDecelerateInterpolator()
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -121,6 +127,8 @@ class MyWatchFace : CanvasWatchFaceService() {
         override fun onAmbientModeChanged(inAmbientMode: Boolean) {
             super.onAmbientModeChanged(inAmbientMode)
             isAmbient = inAmbientMode
+
+            ambientChangeTimeStamp = System.currentTimeMillis()
             //hourTextPaint.isAntiAlias = isLowBitAmbient && !inAmbientMode
             //minuteTextPaint.isAntiAlias = isLowBitAmbient && !inAmbientMode
 
@@ -159,8 +167,17 @@ class MyWatchFace : CanvasWatchFaceService() {
                         bounds.width().toFloat(), bounds.height().toFloat(), backgroundPaint)
             }
 
+
             val now = System.currentTimeMillis()
             calendar.timeInMillis = now
+
+            val timeSinceAmbientChange: Float = (now - ambientChangeTimeStamp).toFloat()
+            val animationFactor = ambientChangeInterpolator.getInterpolation(
+                    timeSinceAmbientChange / AMBIENT_CHANGE_ANIMATION_DUR_MS
+            )
+
+            Log.d("Watch", String.format("Time Since Change: %f", timeSinceAmbientChange))
+            Log.d("Watch", String.format("Animation Factor: %f", animationFactor))
 
             val centerX = canvas.width / 2f
             val centerY = canvas.height / 2f
@@ -179,7 +196,6 @@ class MyWatchFace : CanvasWatchFaceService() {
             topDialPath.drawNumbers(
                     paint = hourTextPaint,
                     canvas = canvas,
-                    stepSkip = 2,
                     drawUpsideDown = true,
                     formatNumber = {
                         if (it == 0)
@@ -192,11 +208,13 @@ class MyWatchFace : CanvasWatchFaceService() {
 
             // Draw bottom dial
             val bottomDialPath = DialMarks(
+                    tickInterval = 5,
+                    minuteMarkHeight = 5f,
                     centerX = centerX,
-                    centerY = canvas.height.toFloat(),
+                    centerY = canvas.height.toFloat() * animationFactor,
                     radius  = canvas.width / 2f
             )
-            val currentMin = calendar.get(Calendar.MINUTE) + calendar.get(Calendar.SECOND) / 100f
+            val currentMin = calendar.get(Calendar.MINUTE)
             val minuteRotation = 360f - 360f/(60f/currentMin)
             canvas.save()
             canvas.rotate(minuteRotation, bottomDialPath.centerX, bottomDialPath.centerY)
@@ -205,10 +223,10 @@ class MyWatchFace : CanvasWatchFaceService() {
                     paint = minuteTextPaint,
                     canvas = canvas,
                     stepDif = 5,
-                    stepSkip = 5,
                     drawUpsideDown = false,
+                    drawBelowMarks = true,
                     formatNumber = {
-                        if (it == 0)
+                        if (it == 60)
                             ""
                         else
                             String.format("%02d", it)
