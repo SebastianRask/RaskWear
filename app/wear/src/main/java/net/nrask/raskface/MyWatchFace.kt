@@ -15,8 +15,10 @@ import android.support.wearable.watchface.WatchFaceService
 import android.support.wearable.watchface.WatchFaceStyle
 import android.util.Log
 import android.view.SurfaceHolder
+import android.view.ViewPropertyAnimator
 import android.view.WindowInsets
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.TranslateAnimation
 import android.widget.Toast
 
 import java.lang.ref.WeakReference
@@ -56,17 +58,16 @@ class MyWatchFace : CanvasWatchFaceService() {
 
     inner class Engine : CanvasWatchFaceService.Engine() {
 
+        private val LOG_TAG: String = "WatchFace"
         private val calendar: Calendar by lazy { Calendar.getInstance() }
 
-        private lateinit var backgroundPaint: Paint
         private lateinit var hourTextPaint: Paint
         private lateinit var minuteTextPaint: Paint
 
-        private var isLowBitAmbient: Boolean = false
-        private var isAmbient: Boolean = false
 
         private val updateTimeHandler: Handler = EngineHandler(this)
 
+        private var isLowBitAmbient: Boolean = false
         private var registeredTimeZoneReceiver = false
         private val timeZoneReceiver: BroadcastReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -78,17 +79,15 @@ class MyWatchFace : CanvasWatchFaceService() {
         private var ambientChangeTimeStamp: Long = 0
         private val ambientChangeInterpolator: TimeInterpolator = AccelerateDecelerateInterpolator()
 
+        private lateinit var bottomDialPath: DialMarks
+        private lateinit var topDialPath: DialMarks
+
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
 
             setWatchFaceStyle(WatchFaceStyle.Builder(this@MyWatchFace)
                     .setAcceptsTapEvents(true)
                     .build())
-
-            // Initializes background.
-            backgroundPaint = Paint().apply {
-                color = ContextCompat.getColor(applicationContext, R.color.background)
-            }
 
             // Initializes typefaces.
             hourTextPaint = Paint().apply {
@@ -106,6 +105,31 @@ class MyWatchFace : CanvasWatchFaceService() {
                 textAlign = Paint.Align.CENTER
                 textSize = baseContext.resources.getDimension( R.dimen.digital_text_size)
             }
+
+        }
+
+        override fun onSurfaceCreated(holder: SurfaceHolder?) {
+            super.onSurfaceCreated(holder)
+            if (holder == null) return
+
+            // Initial Dials
+            Log.d(LOG_TAG, String.format("Size - Height %d, width %d", holder.surfaceFrame.height(), holder.surfaceFrame.width()))
+            val centerX = holder.surfaceFrame.width() / 2f
+
+            topDialPath = DialMarks(
+                    centerX = centerX,
+                    centerY = 0f,
+                    radius  = holder.surfaceFrame.width() / 3f,
+                    tickInterval = 2
+            )
+
+            bottomDialPath = DialMarks(
+                    tickInterval = 5,
+                    minuteMarkHeight = 5f,
+                    centerX = centerX,
+                    centerY = holder.surfaceFrame.height().toFloat(),
+                    radius  = holder.surfaceFrame.width() / 2f
+            )
         }
 
         override fun onDestroy() {
@@ -126,7 +150,6 @@ class MyWatchFace : CanvasWatchFaceService() {
 
         override fun onAmbientModeChanged(inAmbientMode: Boolean) {
             super.onAmbientModeChanged(inAmbientMode)
-            isAmbient = inAmbientMode
 
             ambientChangeTimeStamp = System.currentTimeMillis()
             //hourTextPaint.isAntiAlias = isLowBitAmbient && !inAmbientMode
@@ -159,36 +182,20 @@ class MyWatchFace : CanvasWatchFaceService() {
         }
 
         override fun onDraw(canvas: Canvas, bounds: Rect) {
-            // Draw the background.
-            if (isAmbient) {
-                canvas.drawColor(Color.BLACK)
-            } else {
-                canvas.drawRect(0f, 0f,
-                        bounds.width().toFloat(), bounds.height().toFloat(), backgroundPaint)
-            }
-
-
             val now = System.currentTimeMillis()
+            val animationFactor = getAnimationFactor(now)
             calendar.timeInMillis = now
 
-            val timeSinceAmbientChange: Float = (now - ambientChangeTimeStamp).toFloat()
-            val animationFactor = ambientChangeInterpolator.getInterpolation(
-                    timeSinceAmbientChange / AMBIENT_CHANGE_ANIMATION_DUR_MS
-            )
-
-            Log.d("Watch", String.format("Time Since Change: %f", timeSinceAmbientChange))
             Log.d("Watch", String.format("Animation Factor: %f", animationFactor))
 
-            val centerX = canvas.width / 2f
-            val centerY = canvas.height / 2f
+            // Draw the background.
+            canvas.drawColor(Color.BLACK)
+
+            //Animate scale
+            val scale = 1.5f + -0.5f * animationFactor
+            canvas.scale(scale, scale, canvas.width / 2f, canvas.height / 2f)
 
             // Draw top dial
-            val topDialPath = DialMarks(
-                    centerX = centerX,
-                    centerY = 0f,
-                    radius  = canvas.width / 3f,
-                    tickInterval = 2
-            )
             val hourRotation = 360f - 360f/(12f/calendar.get(Calendar.HOUR))
             canvas.save()
             canvas.rotate(180f + hourRotation, topDialPath.centerX, topDialPath.centerY)
@@ -207,16 +214,10 @@ class MyWatchFace : CanvasWatchFaceService() {
             canvas.restore()
 
             // Draw bottom dial
-            val bottomDialPath = DialMarks(
-                    tickInterval = 5,
-                    minuteMarkHeight = 5f,
-                    centerX = centerX,
-                    centerY = canvas.height.toFloat() * animationFactor,
-                    radius  = canvas.width / 2f
-            )
             val currentMin = calendar.get(Calendar.MINUTE)
             val minuteRotation = 360f - 360f/(60f/currentMin)
             canvas.save()
+            canvas.translate(0f, calcBottomDialPos(animationFactor))
             canvas.rotate(minuteRotation, bottomDialPath.centerX, bottomDialPath.centerY)
             canvas.drawPath(bottomDialPath, hourTextPaint)
             bottomDialPath.drawNumbers(
@@ -253,6 +254,12 @@ class MyWatchFace : CanvasWatchFaceService() {
             updateTimer()
         }
 
+        private fun calcBottomDialPos(animFactor: Float): Float {
+            val startTransY = 0f
+            val targetTransY = bottomDialPath.centerY
+            return (startTransY - targetTransY) * animFactor
+        }
+
         private fun registerReceiver() {
             if (registeredTimeZoneReceiver) {
                 return
@@ -270,12 +277,16 @@ class MyWatchFace : CanvasWatchFaceService() {
             this@MyWatchFace.unregisterReceiver(timeZoneReceiver)
         }
 
-        override fun onApplyWindowInsets(insets: WindowInsets) {
-            super.onApplyWindowInsets(insets)
+        private fun getAnimationFactor(time: Long): Float {
+            var timeSinceAmbientChange: Float = Math.min(
+                    (time - ambientChangeTimeStamp).toFloat(),
+                    AMBIENT_CHANGE_ANIMATION_DUR_MS.toFloat()
+            )
+            timeSinceAmbientChange -= if (isInAmbientMode) AMBIENT_CHANGE_ANIMATION_DUR_MS else 0
 
-            // Load resources that have alternate values for round watches.
-            val resources = this@MyWatchFace.resources
-            val isRound = insets.isRound
+            return ambientChangeInterpolator.getInterpolation(
+                    timeSinceAmbientChange / AMBIENT_CHANGE_ANIMATION_DUR_MS
+            )
         }
 
         /**
@@ -293,7 +304,7 @@ class MyWatchFace : CanvasWatchFaceService() {
          * Returns whether the [.updateTimeHandler] timer should be running. The timer should
          * only run when we're visible and in interactive mode.
          */
-        private fun shouldTimerBeRunning(): Boolean = isVisible && !isInAmbientMode
+        private fun shouldTimerBeRunning(): Boolean = isVisible //&& !isInAmbientMode
 
         /**
          * Handle updating the time periodically in interactive mode.
