@@ -15,10 +15,7 @@ import android.support.wearable.watchface.WatchFaceService
 import android.support.wearable.watchface.WatchFaceStyle
 import android.util.Log
 import android.view.SurfaceHolder
-import android.view.ViewPropertyAnimator
-import android.view.WindowInsets
 import android.view.animation.AccelerateDecelerateInterpolator
-import android.view.animation.TranslateAnimation
 import android.widget.Toast
 
 import java.lang.ref.WeakReference
@@ -79,8 +76,8 @@ class MyWatchFace : CanvasWatchFaceService() {
         private var ambientChangeTimeStamp: Long = 0
         private val ambientChangeInterpolator: TimeInterpolator = AccelerateDecelerateInterpolator()
 
-        private lateinit var bottomDialPath: DialMarks
-        private lateinit var topDialPath: DialMarks
+        private lateinit var minuteDialPath: DialMarks
+        private lateinit var hourDialPath: DialMarks
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -116,19 +113,19 @@ class MyWatchFace : CanvasWatchFaceService() {
             Log.d(LOG_TAG, String.format("Size - Height %d, width %d", holder.surfaceFrame.height(), holder.surfaceFrame.width()))
             val centerX = holder.surfaceFrame.width() / 2f
 
-            topDialPath = DialMarks(
+            hourDialPath = DialMarks(
                     centerX = centerX,
                     centerY = 0f,
                     radius  = holder.surfaceFrame.width() / 3f,
                     tickInterval = 2
             )
 
-            bottomDialPath = DialMarks(
+            minuteDialPath = DialMarks(
                     tickInterval = 5,
                     minuteMarkHeight = 5f,
                     centerX = centerX,
                     centerY = holder.surfaceFrame.height().toFloat(),
-                    radius  = holder.surfaceFrame.width() / 2f
+                    radius  = holder.surfaceFrame.width() / 2f - 70f
             )
         }
 
@@ -183,7 +180,7 @@ class MyWatchFace : CanvasWatchFaceService() {
 
         override fun onDraw(canvas: Canvas, bounds: Rect) {
             val now = System.currentTimeMillis()
-            val animationFactor = getAnimationFactor(now)
+            val animationFactor = calcAnimationFactor(now)
             calendar.timeInMillis = now
 
             Log.d("Watch", String.format("Animation Factor: %f", animationFactor))
@@ -195,12 +192,13 @@ class MyWatchFace : CanvasWatchFaceService() {
             val scale = 1.5f + -0.5f * animationFactor
             canvas.scale(scale, scale, canvas.width / 2f, canvas.height / 2f)
 
-            // Draw top dial
+            // Draw hour dial
             val hourRotation = 360f - 360f/(12f/calendar.get(Calendar.HOUR))
             canvas.save()
-            canvas.rotate(180f + hourRotation, topDialPath.centerX, topDialPath.centerY)
-            canvas.drawPath(topDialPath, hourTextPaint)
-            topDialPath.drawNumbers(
+            canvas.translate(0f, -calcDialTransYPos(animationFactor, hourDialPath))
+            canvas.rotate(180f + hourRotation, hourDialPath.centerX, hourDialPath.centerY)
+            canvas.drawPath(hourDialPath, hourTextPaint)
+            hourDialPath.drawNumbers(
                     paint = hourTextPaint,
                     canvas = canvas,
                     drawUpsideDown = true,
@@ -213,14 +211,14 @@ class MyWatchFace : CanvasWatchFaceService() {
             )
             canvas.restore()
 
-            // Draw bottom dial
+            // Draw minute dial
             val currentMin = calendar.get(Calendar.MINUTE)
             val minuteRotation = 360f - 360f/(60f/currentMin)
             canvas.save()
-            canvas.translate(0f, calcBottomDialPos(animationFactor))
-            canvas.rotate(minuteRotation, bottomDialPath.centerX, bottomDialPath.centerY)
-            canvas.drawPath(bottomDialPath, hourTextPaint)
-            bottomDialPath.drawNumbers(
+            canvas.translate(0f, calcDialTransYPos(animationFactor, minuteDialPath))
+            canvas.rotate(minuteRotation, minuteDialPath.centerX, minuteDialPath.centerY)
+            canvas.drawPath(minuteDialPath, hourTextPaint)
+            minuteDialPath.drawNumbers(
                     paint = minuteTextPaint,
                     canvas = canvas,
                     stepDif = 5,
@@ -254,10 +252,22 @@ class MyWatchFace : CanvasWatchFaceService() {
             updateTimer()
         }
 
-        private fun calcBottomDialPos(animFactor: Float): Float {
-            val startTransY = 0f
-            val targetTransY = bottomDialPath.centerY
-            return (startTransY - targetTransY) * animFactor
+        private fun calcDialTransYPos(animFactor: Float, dial: DialMarks): Float {
+            val focusPos = 0
+            val ambPos = (dial.radius - surfaceHolder.surfaceFrame.height() / 2)// - (surfaceHolder.surfaceFrame.height() - dial.centerY)
+            return (ambPos - focusPos) * (1 - animFactor)
+        }
+
+        private fun calcAnimationFactor(time: Long): Float {
+            var timeSinceAmbientChange: Float = Math.min(
+                    (time - ambientChangeTimeStamp).toFloat(),
+                    AMBIENT_CHANGE_ANIMATION_DUR_MS.toFloat()
+            )
+            timeSinceAmbientChange -= if (isInAmbientMode) AMBIENT_CHANGE_ANIMATION_DUR_MS else 0
+
+            return ambientChangeInterpolator.getInterpolation(
+                    timeSinceAmbientChange / AMBIENT_CHANGE_ANIMATION_DUR_MS
+            )
         }
 
         private fun registerReceiver() {
@@ -277,17 +287,6 @@ class MyWatchFace : CanvasWatchFaceService() {
             this@MyWatchFace.unregisterReceiver(timeZoneReceiver)
         }
 
-        private fun getAnimationFactor(time: Long): Float {
-            var timeSinceAmbientChange: Float = Math.min(
-                    (time - ambientChangeTimeStamp).toFloat(),
-                    AMBIENT_CHANGE_ANIMATION_DUR_MS.toFloat()
-            )
-            timeSinceAmbientChange -= if (isInAmbientMode) AMBIENT_CHANGE_ANIMATION_DUR_MS else 0
-
-            return ambientChangeInterpolator.getInterpolation(
-                    timeSinceAmbientChange / AMBIENT_CHANGE_ANIMATION_DUR_MS
-            )
-        }
 
         /**
          * Starts the [.updateTimeHandler] timer if it should be running and isn't currently
