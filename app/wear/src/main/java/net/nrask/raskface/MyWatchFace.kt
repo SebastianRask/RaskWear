@@ -183,7 +183,6 @@ class MyWatchFace : CanvasWatchFaceService() {
             val animationFactor = calcAnimationFactor(now)
             calendar.timeInMillis = now
 
-            Log.d("Watch", String.format("Animation Factor: %f", animationFactor))
 
             // Draw the background.
             canvas.drawColor(Color.BLACK)
@@ -195,7 +194,7 @@ class MyWatchFace : CanvasWatchFaceService() {
             // Draw hour dial
             val hourRotation = 360f - 360f/(12f/calendar.get(Calendar.HOUR))
             canvas.save()
-            canvas.translate(0f, -calcDialTransYPos(animationFactor, hourDialPath))
+            canvas.translate(0f, -calcDialTransYPos(animationFactor, hourDialPath, hourTextPaint))
             canvas.rotate(180f + hourRotation, hourDialPath.centerX, hourDialPath.centerY)
             canvas.drawPath(hourDialPath, hourTextPaint)
             hourDialPath.drawNumbers(
@@ -252,9 +251,14 @@ class MyWatchFace : CanvasWatchFaceService() {
             updateTimer()
         }
 
-        private fun calcDialTransYPos(animFactor: Float, dial: DialMarks): Float {
+        private fun calcDialTransYPos(animFactor: Float, dial: DialMarks, ambientTextPaint: Paint? = null): Float {
+            val textHeight = if (ambientTextPaint != null)
+                ambientTextPaint.getHeightForText("60") + 10
+            else
+                0f
+
             val focusPos = 0
-            val ambPos = (dial.radius - surfaceHolder.surfaceFrame.height() / 2)// - (surfaceHolder.surfaceFrame.height() - dial.centerY)
+            val ambPos = (dial.radius - surfaceHolder.surfaceFrame.height() / 2) + textHeight// - (surfaceHolder.surfaceFrame.height() - dial.centerY)
             return (ambPos - focusPos) * (1 - animFactor)
         }
 

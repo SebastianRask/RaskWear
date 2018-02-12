@@ -67,10 +67,8 @@ class DialMarks(
 
         for (numberStep: Int in start..end) {
             val text = formatNumber(numberStep * stepDif)
-            val textBounds = Rect()
-            paint.getTextBounds(text, 0, text.length, textBounds)
+            val textHeight = paint.getHeightForText(text)
 
-            val textHeight = textBounds.height() - paint.descent()
             val yDiff = if (drawBelowMarks)
                 textHeight + markHeight + markDistance
             else
